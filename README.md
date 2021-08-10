@@ -89,11 +89,22 @@ The only requirement for usage is that we include the right header (`nvToolsExt.
 in the `include/` and `lib64` directories of a CUDA installation.
 
 So let's instrument the application with NVTX, being sure to mark off at least memory allocation, data initialization, the Jacobi relaxation step, and the data swap. (Note: NVTX
-push/pop ranges can be nested, but we are avoiding that for now.) jacobi_step1.cpp contains the modified code with this instrumentation.
+push/pop ranges can be nested, but we are avoiding that for now.) `jacobi_step1.cpp` contains the modified code with this instrumentation.
 
 When you run the program under Nsight Systems, a region for NVTX ranges will appear at the end when using the stdout summary mode (`--stats=true`). What does the NVTX output
 say about where the time is spent? Does it match your expectations?
 ```
-g++ -o jacobi_step1 -I/usr/local/cuda/include -L/usr/local/cuda/lib64 jacobi.cpp -lnvToolsExt
+g++ -o jacobi_step1 -I/usr/local/cuda/include -L/usr/local/cuda/lib64 jacobi_step1.cpp -lnvToolsExt
 nsys profile --stats=true -o jacobi_step1 -f true ./jacobi_step1
+```
+
+## Step 2: Unified Memory
+
+Rather than using standard CPU `malloc()`, we can use `cudaMallocManaged()` to allocate our data in Unified Memory (but we don't make any other changes yet).
+This is completely legal even if, as in this case, we only intend to use host code (for now). We also add CUDA error checking. These changes require us to add
+the API `cuda_runtime_api.h` and the runtime library `libcudart.so`. What does the profile indicate about the relative cost of starting up a CUDA program?
+The new code is in `jacobi_step2.cpp`.
+```
+g++ -o jacobi_step2 -I/usr/local/cuda/include -L/usr/local/cuda/lib64 jacobi_step2.cpp -lnvToolsExt -lcudart
+nsys profile --stats=true -o jacobi_step2 -f true ./jacobi_step2
 ```
