@@ -156,3 +156,63 @@ So now we implement `swap_data()` in CUDA and check the profiler output to under
 nvcc -o jacobi_step5 -x cu -arch=sm_80 -lnvToolsExt jacobi_step5.cpp
 nsys profile --stats=true -o jacobi_step5 -f true ./jacobi_step5
 ```
+
+## Step 6: Analyze the Jacobi Kernel
+
+We are now much faster on the GPU than on the CPU, and from our profiling output we should now be able to identify that the vast majority of the application runtime is spent in kernels,
+particularly the Jacobi kernel (the swap kernel apears to be very fast in comparison). It is now appropriate to start analyzing the performance of this kernel and ask if there are any
+optimizations we can apply.
+
+First, let us hypothesize about whether an ideal implementation of this kernel should be compute-bound, memory-bound, or neither (latency-bound). To avoid being latency-bound, we should
+generally expose enough work to keep a large number of threads running on the device. If `N = 2048`, say, then there are `2048 * 2048` or about 4 million degrees of freedom in this problem.
+Since the order of magnitude number of threads a modern high-end GPU can simultaneously field is O(100k), we likely do enough work to keep the device busy -- though we will have to verify this.
+
+When thinking about whether we are compute-bound or memory-bound, it is natural to think in terms of the *arithmetic intensity* of the operation, that is, the number of (floating-point)
+operations computed per byte moved. A modern accelerator typically is only compute bound when this ratio is of order 10. But the Jacobi stencil involves moving four words (each of which is
+4 bytes, for single-precision floating point) while only computing four floating point operations (three adds and one multiply). So the arithmetic intensity is 4 (FLOPs) / 16 (bytes) = 0.25
+FLOPs / byte. Clearly this is in the memory-bandwidth bound regime.
+
+With that analysis in mind, let's see what the profiling tool tells us about the memory throughput compared to speed-of-light. We'll apply Nsight Compute to the program we compiled in Step 5.
+We assume that every invocation of the kernel has approximately similar performance characteristics, so we only profile one invocation, and we skip the first few to allow the device to warm up.
+We'll save the input to a file first, and then import the results to display in the terminal (in case we want to open the report in the Nsight Compute user interface).
+```
+ncu --launch-count 1 --launch-skip 5 --kernel-regex jacobi --export jacobi_step5 --force-overwrite ./jacobi_step5
+ncu --import jacobi_step5.ncu-rep
+```
+
+You likely saw that, as predicted, we have pretty decent achieved occupancy, so we're giving the GPU enough work to do, but we are definitely not close to speed-of-light on compute throughput
+(SM %), and disappointingly we're also not even close on memory throughput either. We appear to still be latency-bound in some way.
+
+A likely culprit explaining low memory throughput is poor memory access patterns. Since we're currently working with global memory, that usually implies uncoalesced memory accesses. Could that
+have anything to do with it?
+
+If that's where we're headed, then at this point an obvious question to ask is, does our threading strategy actually map well to the memory layout of our arrays? This can be a tricky thing to
+sort out when working with 2D data and 2D blocks, and it gets even more complicated for the Jacobi kernel in particular because of the stencil pattern. However, we fortunately have a kernel that
+we know uses exactly the same threading strategy (`swap_data()`) that is much faster. What does Nsight Compute say about the memory throughput of that kernel? We can use the `--set full` to do
+a more through (albeit more expensive) analysis. At the bottom of the output, Nsight Compute will tell us if there were a significant amount of uncoalesced accesses.
+```
+ncu --launch-count 1 --launch-skip 5 --kernel-regex swap_data --set full ./jacobi_step5
+```
+
+OK, so we can clearly conclude two things based on this output. First, there are plenty of uncoalesced accesses in this kernel -- in fact, Nsight Compute tells us that we did 8x as many sector
+loads as we needed (sectors are the smallest unit of accessible DRAM in a memory transaction and are 32-bytes long)! This is a smoking gun for a memory access pattern with a large stride.
+Correspondingly, we only got a small fraction of DRAM throughput. Second, despite this fact, we achieved a pretty decent fraction of speed-of-light for *L2 cache* accesses. This makes sense
+to the extent that caching is helping to ameliorate the poor nature of our DRAM access pattern, but a question to ask yourself is, why didn't the Jacobi kernel achieve that? We'll come back
+to that later.
+
+Compare the indexing scheme to the threading scheme, noting that in a two-dimensional threadblock, the `x` dimension is the contiguous dimension and the `y` dimension is the strided dimension;
+in a 32x32 thread block, you can think of `threadIdx.y` as enumerating which of 32 warps we're using with, while each warp constitutes the 32 threads in the `x` dimension. So if we want to fix
+our memory access pattern we can reverse our indexing macro to effectively reverse the memory layout: the `i` dimension will be contiguous in memory to match the "shape" of the threadblock.
+This fix will allow us to achieve coalesced memory accesses. Look at `jacobi_step6.cpp` for this change.
+
+As a side note, we expect this to improve GPU performance, but it's also likely this would have improved the CPU performance as well (if we compare to the original code where the `i` dimension
+was the innermost loop), which will make the overall GPU speedup relative to the CPU less impressive. You may want to go back and check how much of a factor that was in the CPU-only code.
+```
+nvcc -o jacobi_step6 -x cu -arch=sm_80 -lnvToolsExt jacobi_step6.cpp
+nsys profile --stats=true -o jacobi_step6 -f true ./jacobi_step6
+```
+
+Verify using Nsight Compute that the DRAM throughput of the swap kernel is much better now.
+```
+ncu --launch-count 1 --launch-skip 5 --kernel-regex swap_data --set full ./jacobi_step6
+```
