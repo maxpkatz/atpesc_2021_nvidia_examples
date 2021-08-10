@@ -65,11 +65,6 @@ g++ -o jacobi exercises/jacobi.cpp
 ./jacobi
 ```
 
-Before we continue on, make a copy of the source file in case you make a mistake and want to revert to the original state of the code:
-```
-cp jacobi.cpp jacobi_original.cpp
-```
-
 ## Step 1: Add NVTX Annotations
 
 Before we jump into GPU porting, let's first identify where most of the time is being spent in our application. We're doing an extremely simple calculation, so you
@@ -93,17 +88,12 @@ Then the string "my region name" would be used in the profiling tool to time the
 The only requirement for usage is that we include the right header (`nvToolsExt.h`) and link against the right runtime library (`libnvToolsExt.so`). These are located
 in the `include/` and `lib64` directories of a CUDA installation.
 
-Instrument the application with NVTX, being sure to mark off at least memory allocation, data initialization, the Jacobi relaxation step, and the data swap. (Note: NVTX
-push/pop ranges can be nested, but we recommend avoiding that for now.) Check solutions/jacobi_step1.cpp if you want to see one solution to this problem.
+So let's instrument the application with NVTX, being sure to mark off at least memory allocation, data initialization, the Jacobi relaxation step, and the data swap. (Note: NVTX
+push/pop ranges can be nested, but we are avoiding that for now.) jacobi_step1.cpp contains the modified code with this instrumentation.
 
 When you run the program under Nsight Systems, a region for NVTX ranges will appear at the end when using the stdout summary mode (`--stats=true`). What does the NVTX output
 say about where the time is spent? Does it match your expectations?
 ```
 g++ -o jacobi_step1 -I/usr/local/cuda/include -L/usr/local/cuda/lib64 jacobi.cpp -lnvToolsExt
 nsys profile --stats=true -o jacobi_step1 -f true ./jacobi_step1
-```
-
-When you're happy with your answer, save your current progress so you can come back to it later if needed.
-```
-cp jacobi.cpp jacobi_step1.cpp
 ```
