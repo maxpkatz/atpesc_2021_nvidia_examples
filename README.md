@@ -142,3 +142,17 @@ need to use `nvcc` since we're compiling CUDA code.
 nvcc -o jacobi_step4 -x cu -arch=sm_80 -lnvToolsExt jacobi_step4.cpp
 nsys profile --stats=true -o jacobi_step4 -f true ./jacobi_step4
 ```
+## Step 5: Convert the Swap Kernel
+
+We saw above that the Jacobi kernel got significantly faster in absolute terms, though perhaps not as much as we would have hoped, but it made the swap kernel slower! It appears
+that we're paying both for the cost of Unified Memory transfers from host to device in the Jacobi kernel, and Unified Memory transfers from device to host when the swap function occurs.
+
+At this point we have two options to improve performance. We could either use Unified Memory prefetches to move the data more efficiently, or we could just go ahead and port the
+swap kernel to CUDA as well. We are going to suggest the latter. Our goal should be to do as much of the compute work as possible on the GPU, and in this case it's entirely possible
+to keep the data on the GPU for the entirety of the Jacobi iteration.
+
+So now we implement `swap_data()` in CUDA and check the profiler output to understand what happened. See `jacobi_step5.cpp` for the new code.
+```
+nvcc -o jacobi_step5 -x cu -arch=sm_80 -lnvToolsExt jacobi_step5.cpp
+nsys profile --stats=true -o jacobi_step5 -f true ./jacobi_step5
+```
