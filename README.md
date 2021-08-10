@@ -212,17 +212,29 @@ nvcc -o jacobi_step6 -x cu -arch=sm_80 -lnvToolsExt jacobi_step6.cpp
 nsys profile --stats=true -o jacobi_step6 -f true ./jacobi_step6
 ```
 
-Verify using Nsight Compute that the DRAM throughput of the swap kernel is much better now.
+Verify using Nsight Compute that the DRAM throughput of the swap kernel is better now.
 ```
 ncu --launch-count 1 --launch-skip 5 --kernel-regex swap_data --set full ./jacobi_step6
 ```
 
-## Step 7: Revisiting the Reduction
+## Step 7: Make the Problem Bigger (Again)
 
-Let's take another look at the Jacobi kernel now that we've fixed the overall global memory access pattern.
+The DRAM throughput is not quite where we want it. `swap_data()` isn't even using half of DRAM throughput. Let's make the problem bigger again! See `jacobi_step7.cpp`.
 ```
-ncu --launch-count 1 --launch-skip 5 --kernel-regex jacobi --export jacobi_step6 --force-overwrite --set full ./jacobi_step6
-ncu --import jacobi_step6.ncu-rep
+nvcc -o jacobi_step7 -x cu -arch=sm_80 -lnvToolsExt jacobi_step7.cpp
+nsys profile --stats=true -o jacobi_step7 -f true ./jacobi_step7
+```
+
+```
+ncu --launch-count 1 --launch-skip 5 --kernel-regex swap_data --set full ./jacobi_step7
+```
+
+## Step 8: Revisiting the Reduction
+
+Let's take another look at the Jacobi kernel now that we've fixed the overall global memory access pattern and have a big enough problem to saturate DRAM throughput.
+```
+ncu --launch-count 1 --launch-skip 5 --kernel-regex jacobi --export jacobi_step7 --force-overwrite --set full ./jacobi_step7
+ncu --import jacobi_step7.ncu-rep
 ```
 
 The output from Nsight Compute is a little puzzling here. We know we probably have some work to do with our stencil operation, but surely we should be doing better than ~1% of peak memory
@@ -234,19 +246,19 @@ because just getting the work on the GPU to begin with was the clear first step,
 Let's refactor the kernel to use a more efficient reduction scheme that uses fewer overall atomics. We'll use the NVIDIA library [cub](https://nvlabs.github.io/cub/). To get a sense of how
 good of a job you would like to do, try commenting out the atomic reduction entirely from the kernel (and then temporarily modifying `main()` so that you can run enough iterations of the
 Jacobi kernel to get a profiling result, and see how much faster it is in that case (and inspect the Nsight Compute output for that case). That's your "speed of light" kernel, at least
-with respect to the reduction phase. Our new code is in `jacobi_step7.cpp`.
+with respect to the reduction phase. Our new code is in `jacobi_step8.cpp`.
 ```
-nvcc -o jacobi_step7 -x cu -arch=sm_80 -lnvToolsExt jacobi_step7.cpp
-nsys profile --stats=true -o jacobi_step7 -f true ./jacobi_step7
+nvcc -o jacobi_step8 -x cu -arch=sm_80 -lnvToolsExt jacobi_step8.cpp
+nsys profile --stats=true -o jacobi_step8 -f true ./jacobi_step8
 ```
 
 Make sure to check the Nsight Compute output to see how close we get to the DRAM throughput of the case with no reduction at all.
 ```
-ncu --launch-count 1 --launch-skip 5 --kernel-regex jacobi --export jacobi_step7 --force-overwrite --set full ./jacobi_step7
-ncu --import jacobi_step7.ncu-rep
+ncu --launch-count 1 --launch-skip 5 --kernel-regex jacobi --export jacobi_step8 --force-overwrite --set full ./jacobi_step8
+ncu --import jacobi_step8.ncu-rep
 ```
 
-## Step 8: Shared Memory
+## Step 9: Shared Memory
 
 Similar to the thought experiment we did about how fast our reduction ought to be, we can also do a thought experiment about what the speed of light for the Jacobi kernel is. We have a
 nice comparison kernel in `swap_data()`, which has fully coalesced accesses. Since there is a significant delta in DRAM throughput between that kernel and the Jacobi kernel, we'd like
@@ -261,14 +273,14 @@ get larger than this anyway), so that we can hardcode the size of the shared mem
 to read in the data into a 2D tile whose extent is 34x34 (since we need to update 32x32 values and the stencil depends on data up to one element away in each dimension). We make sure to perform
 a proper threadblock synchronization before reading the data in shared memory, and we note that the `__syncthreads()` intrinsic needs to be called by all threads in the block.
 
-A solution to this is presented in `jacobi_step8.cpp`. Note that this is probably not the best possible solution, it errs slightly on the side of legibility over performance in how the
+A solution to this is presented in `jacobi_step9.cpp`. Note that this is probably not the best possible solution, it errs slightly on the side of legibility over performance in how the
 shared memory tile is loaded.
 ```
-nvcc -o jacobi_step8 -x cu -arch=sm_80 -lnvToolsExt jacobi_step8.cpp
-nsys profile --stats=true -o jacobi_step8 -f true ./jacobi_step8
+nvcc -o jacobi_step9 -x cu -arch=sm_80 -lnvToolsExt jacobi_step9.cpp
+nsys profile --stats=true -o jacobi_step9 -f true ./jacobi_step9
 ```
 
 ```
-ncu --launch-count 1 --launch-skip 5 --kernel-regex jacobi --export jacobi_step8 --force-overwrite --set full ./jacobi_step8
-ncu --import jacobi_step8.ncu-rep
+ncu --launch-count 1 --launch-skip 5 --kernel-regex jacobi --export jacobi_step9 --force-overwrite --set full ./jacobi_step9
+ncu --import jacobi_step9.ncu-rep
 ```

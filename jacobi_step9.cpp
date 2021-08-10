@@ -57,17 +57,47 @@ void initialize_data (float* f) {
 }
 
 __global__ void jacobi_step (float* f, float* f_old, float* error) {
+    __shared__ float f_old_tile[34][34];
+
     int i = threadIdx.x + blockIdx.x * blockDim.x;
     int j = threadIdx.y + blockIdx.y * blockDim.y;
+
+    // First read in the "interior" data, one value per thread
+    // Note the offset by 1, to reserve space for the "left"/"bottom" halo
+
+    f_old_tile[threadIdx.y+1][threadIdx.x+1] = f_old[IDX(i,j)];
+
+    // Now read in the halo data; we'll pick the "closest" thread
+    // to each element. When we do this, make sure we don't fall
+    // off the end of the global memory array. Note that this
+    // code does not fill the corners, as they are not used in
+    // this stencil.
+
+    if (threadIdx.x == 0 && i >= 1) {
+        f_old_tile[threadIdx.y+1][threadIdx.x+0] = f_old[IDX(i-1,j)];
+    }
+    if (threadIdx.x == 31 && i <= N-2) {
+        f_old_tile[threadIdx.y+1][threadIdx.x+2] = f_old[IDX(i+1,j)];
+    }
+    if (threadIdx.y == 0 && j >= 1) {
+        f_old_tile[threadIdx.y+0][threadIdx.x+1] = f_old[IDX(i,j-1)];
+    }
+    if (threadIdx.y == 31 && j <= N-2) {
+        f_old_tile[threadIdx.y+2][threadIdx.x+1] = f_old[IDX(i,j+1)];
+    }
+
+    // Synchronize all threads
+    __syncthreads();
 
     float err = 0.0f;
 
     if (j >= 1 && j <= N-2) {
         if (i >= 1 && i <= N-2) {
-            f[IDX(i,j)] = 0.25f * (f_old[IDX(i+1,j)] + f_old[IDX(i-1,j)] + 
-                                   f_old[IDX(i,j+1)] + f_old[IDX(i,j-1)]);
+            // Perform the read from shared memory
+            f[IDX(i,j)] = 0.25f * (f_old_tile[threadIdx.y+1][threadIdx.x+2] + f_old_tile[threadIdx.y+1][threadIdx.x+0] + 
+                                   f_old_tile[threadIdx.y+2][threadIdx.x+1] + f_old_tile[threadIdx.y+0][threadIdx.x+1]);
 
-            float df = f[IDX(i,j)] - f_old[IDX(i,j)];
+            float df = f[IDX(i,j)] - f_old_tile[threadIdx.y+1][threadIdx.x+1];
             err = df * df;
         }
     }

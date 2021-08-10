@@ -6,7 +6,7 @@
 #include <nvToolsExt.h>
 #include <cuda_runtime_api.h>
 
-#define N 2048
+#define N 8192
 
 #define IDX(i, j) ((i) + (j) * N)
 
@@ -60,46 +60,13 @@ __global__ void jacobi_step (float* f, float* f_old, float* error) {
     int i = threadIdx.x + blockIdx.x * blockDim.x;
     int j = threadIdx.y + blockIdx.y * blockDim.y;
 
-    float err = 0.0f;
-
     if (j >= 1 && j <= N-2) {
         if (i >= 1 && i <= N-2) {
             f[IDX(i,j)] = 0.25f * (f_old[IDX(i+1,j)] + f_old[IDX(i-1,j)] + 
                                    f_old[IDX(i,j+1)] + f_old[IDX(i,j-1)]);
 
             float df = f[IDX(i,j)] - f_old[IDX(i,j)];
-            err = df * df;
-        }
-    }
-
-    // Sum over threads in the warp
-    // For simplicity, we do this outside the above conditional
-    // so that all threads participate
-    for (int offset = 16; offset > 0; offset /= 2) {
-        err += __shfl_down_sync(0xffffffff, err, offset);
-    }
-
-    // If we're thread 0 in the warp, update our value to shared memory
-    // Note that we're assuming exactly a 32x32 block and that the warp ID
-    // is equivalent to threadIdx.y. For the general case, we would have to
-    // write more careful code.
-    __shared__ float reduction_array[32];
-    if (threadIdx.x == 0) {
-        reduction_array[threadIdx.y] = err;
-    }
-
-    // Synchronize the block before reading any values from smem
-    __syncthreads();
-
-    // Using the first warp in the block, reduce over the partial sums
-    // in the shared memory array.
-    if (threadIdx.y == 0) {
-        err = reduction_array[threadIdx.x];
-        for (int offset = 16; offset > 0; offset /= 2) {
-            err += __shfl_down_sync(0xffffffff, err, offset);
-        }
-        if (threadIdx.x == 0) {
-            atomicAdd(error, err);
+            atomicAdd(error, df * df);
         }
     }
 }
