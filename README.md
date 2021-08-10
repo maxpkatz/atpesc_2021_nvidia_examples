@@ -176,7 +176,7 @@ With that analysis in mind, let's see what the profiling tool tells us about the
 We assume that every invocation of the kernel has approximately similar performance characteristics, so we only profile one invocation, and we skip the first few to allow the device to warm up.
 We'll save the input to a file first, and then import the results to display in the terminal (in case we want to open the report in the Nsight Compute user interface).
 ```
-ncu --launch-count 1 --launch-skip 5 --kernel-regex jacobi --export jacobi_step5 --force-overwrite ./jacobi_step5
+ncu --launch-count 1 --launch-skip 5 --kernel-name regex:jacobi --export jacobi_step5 --force-overwrite ./jacobi_step5
 ncu --import jacobi_step5.ncu-rep
 ```
 
@@ -191,7 +191,7 @@ sort out when working with 2D data and 2D blocks, and it gets even more complica
 we know uses exactly the same threading strategy (`swap_data()`) that is much faster. What does Nsight Compute say about the memory throughput of that kernel? We can use the `--set full` to do
 a more through (albeit more expensive) analysis. At the bottom of the output, Nsight Compute will tell us if there were a significant amount of uncoalesced accesses.
 ```
-ncu --launch-count 1 --launch-skip 5 --kernel-regex swap_data --set full ./jacobi_step5
+ncu --launch-count 1 --launch-skip 5 --kernel-name regex:swap_data --set full ./jacobi_step5
 ```
 
 OK, so we can clearly conclude two things based on this output. First, there are plenty of uncoalesced accesses in this kernel -- in fact, Nsight Compute tells us that we did 8x as many sector
@@ -214,7 +214,7 @@ nsys profile --stats=true -o jacobi_step6 -f true ./jacobi_step6
 
 Verify using Nsight Compute that the DRAM throughput of the swap kernel is better now.
 ```
-ncu --launch-count 1 --launch-skip 5 --kernel-regex swap_data --set full ./jacobi_step6
+ncu --launch-count 1 --launch-skip 5 --kernel-name regex:swap_data --set full ./jacobi_step6
 ```
 
 ## Step 7: Make the Problem Bigger (Again)
@@ -226,14 +226,14 @@ nsys profile --stats=true -o jacobi_step7 -f true ./jacobi_step7
 ```
 
 ```
-ncu --launch-count 1 --launch-skip 5 --kernel-regex swap_data --set full ./jacobi_step7
+ncu --launch-count 1 --launch-skip 5 --kernel-name regex:swap_data --set full ./jacobi_step7
 ```
 
 ## Step 8: Revisiting the Reduction
 
 Let's take another look at the Jacobi kernel now that we've fixed the overall global memory access pattern and have a big enough problem to saturate DRAM throughput.
 ```
-ncu --launch-count 1 --launch-skip 5 --kernel-regex jacobi --export jacobi_step7 --force-overwrite --set full ./jacobi_step7
+ncu --launch-count 1 --launch-skip 5 --kernel-name regex:jacobi --export jacobi_step7 --force-overwrite --set full ./jacobi_step7
 ncu --import jacobi_step7.ncu-rep
 ```
 
@@ -254,7 +254,7 @@ nsys profile --stats=true -o jacobi_step8 -f true ./jacobi_step8
 
 Make sure to check the Nsight Compute output to see how close we get to the DRAM throughput of the case with no reduction at all.
 ```
-ncu --launch-count 1 --launch-skip 5 --kernel-regex jacobi --export jacobi_step8 --force-overwrite --set full ./jacobi_step8
+ncu --launch-count 1 --launch-skip 5 --kernel-name regex:jacobi --export jacobi_step8 --force-overwrite --set full ./jacobi_step8
 ncu --import jacobi_step8.ncu-rep
 ```
 
@@ -281,7 +281,7 @@ nsys profile --stats=true -o jacobi_step9 -f true ./jacobi_step9
 ```
 
 ```
-ncu --launch-count 1 --launch-skip 5 --kernel-regex jacobi --export jacobi_step9 --force-overwrite --set full ./jacobi_step9
+ncu --launch-count 1 --launch-skip 5 --kernel-name regex:jacobi --export jacobi_step9 --force-overwrite --set full ./jacobi_step9
 ncu --import jacobi_step9.ncu-rep
 ```
 
