@@ -216,3 +216,32 @@ Verify using Nsight Compute that the DRAM throughput of the swap kernel is much 
 ```
 ncu --launch-count 1 --launch-skip 5 --kernel-regex swap_data --set full ./jacobi_step6
 ```
+
+## Step 7: Revisiting the Reduction
+
+Let's take another look at the Jacobi kernel now that we've fixed the overall global memory access pattern.
+```
+ncu --launch-count 1 --launch-skip 5 --kernel-regex jacobi --export jacobi_step6 --force-overwrite --set full ./jacobi_step6
+ncu --import jacobi_step6.ncu-rep
+```
+
+The output from Nsight Compute is a little puzzling here. We know we probably have some work to do with our stencil operation, but surely we should be doing better than ~1% of peak memory
+throughput? If we consult the Scheduler Statistics section, we see that a shocking 99.9% of cycles have no warps eligible to issue work! This is much, much worse than the swap kernel, which
+has eligible warps on average 15% of the time. What could explain that? Well, the only thing we're really doing in our kernel besides the stencil update is the atomic update to the error
+counter. And we have reason to believe that if many threads are writing atomically to the same location at the same time, they will serialize and stall. In the beginning, we did it this way
+because just getting the work on the GPU to begin with was the clear first step, but now we obviously need to revisit this.
+
+Let's refactor the kernel to use a more efficient reduction scheme that uses fewer overall atomics. We'll use the NVIDIA library [cub](https://nvlabs.github.io/cub/). To get a sense of how
+good of a job you would like to do, try commenting out the atomic reduction entirely from the kernel (and then temporarily modifying `main()` so that you can run enough iterations of the
+Jacobi kernel to get a profiling result, and see how much faster it is in that case (and inspect the Nsight Compute output for that case). That's your "speed of light" kernel, at least
+with respect to the reduction phase. Our new code is in `jacobi_step7.cpp`.
+```
+nvcc -o jacobi_step7 -x cu -arch=sm_80 -lnvToolsExt jacobi_step7.cpp
+nsys profile --stats=true -o jacobi_step7 -f true ./jacobi_step7
+```
+
+Make sure to check the Nsight Compute output to see how close we get to the DRAM throughput of the case with no reduction at all.
+```
+ncu --launch-count 1 --launch-skip 5 --kernel-regex jacobi --export jacobi_step7 --force-overwrite --set full ./jacobi_step7
+ncu --import jacobi_step7.ncu-rep
+```
