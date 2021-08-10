@@ -245,3 +245,30 @@ Make sure to check the Nsight Compute output to see how close we get to the DRAM
 ncu --launch-count 1 --launch-skip 5 --kernel-regex jacobi --export jacobi_step7 --force-overwrite --set full ./jacobi_step7
 ncu --import jacobi_step7.ncu-rep
 ```
+
+## Step 8: Shared Memory
+
+Similar to the thought experiment we did about how fast our reduction ought to be, we can also do a thought experiment about what the speed of light for the Jacobi kernel is. We have a
+nice comparison kernel in `swap_data()`, which has fully coalesced accesses. Since there is a significant delta in DRAM throughput between that kernel and the Jacobi kernel, we'd like
+to see if there's anything we can do.
+
+Stencil operations are non-trivial for GPU caches to deal with properly because the very large stride between row `j` and row `j+1` (corresponding to the number of columns) means that we may
+get little cache reuse, a problem that only grows as the array size becomes larger. This is a good candidate for caching the stencil data in shared memory, so that when we do reuse the
+data, it's reading from a higher bandwidth, lower latency source close to the compute cores. Note that we're not trying to improve DRAM throughput, we're trying to access DRAM less frequently.
+
+Let's implement shared memory usage in the kernel. We'll use a 2D tile. For simplicity, we assume that the number of threads in the block is 1024 and that there are 32 per dimension (we can't
+get larger than this anyway), so that we can hardcode the size of the shared memory array at compile time. There's a couple ways to do this; the simplest way, and the one we recommend, is simply
+to read in the data into a 2D tile whose extent is 34x34 (since we need to update 32x32 values and the stencil depends on data up to one element away in each dimension). We make sure to perform
+a proper threadblock synchronization before reading the data in shared memory, and we note that the `__syncthreads()` intrinsic needs to be called by all threads in the block.
+
+A solution to this is presented in `jacobi_step8.cpp`. Note that this is probably not the best possible solution, it errs slightly on the side of legibility over performance in how the
+shared memory tile is loaded.
+```
+nvcc -o jacobi_step8 -x cu -arch=sm_80 -lnvToolsExt jacobi_step8.cpp
+nsys profile --stats=true -o jacobi_step8 -f true ./jacobi_step8
+```
+
+```
+ncu --launch-count 1 --launch-skip 5 --kernel-regex jacobi --export jacobi_step8 --force-overwrite --set full ./jacobi_step8
+ncu --import jacobi_step8.ncu-rep
+```
