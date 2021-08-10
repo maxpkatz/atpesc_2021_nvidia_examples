@@ -7,7 +7,7 @@ We'll use an interactive session for this work.
 
 ```
 module load cobalt/cobalt-gpu
-qsub -n 1 -t 60 -I -q full-node
+qsub -n 1 -t 60 -I -A ATPESC2021 -q training
 ```
 
 In this lab we'll use CUDA 11.3 which is in the default ThetaGPU environment.
@@ -16,6 +16,10 @@ You can double check this with
 ```
 nvcc --version
 ```
+
+If you're using a system other than ThetaGPU, make sure to update the `-arch` flag in nvcc to match the compute capability of the GPU you are using
+(for example, `-arch=sm_70` for V100). This tutorial is only designed for a GPU that is either NVIDIA V100 or A100; your mileage may vary on other GPUs.
+Also, you'll need to replace the paths to `/usr/local/cuda` below with the path to your CUDA installation.
 
 ## Introduction
 
