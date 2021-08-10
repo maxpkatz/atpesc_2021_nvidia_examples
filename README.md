@@ -130,3 +130,15 @@ simplicity later, we are keeping it as a factor of 2, and we recommend a value o
 g++ -o jacobi_step3 -I/usr/local/cuda/include -L/usr/local/cuda/lib64 jacobi_step3.cpp -lnvToolsExt -lcudart
 nsys profile --stats=true -o jacobi_step3 -f true ./jacobi_step3
 ```
+
+## Step 4: Run the Jacobi Step on the GPU
+
+The Jacobi relaxation steps are now the most expensive portion of the application. We also know this is a task we can solve in parallel since each zone is updated independently
+(with the exception of the error, for which we must perform some sort of reduction). We first convert `jacobi_step()` (only) to a CUDA kernel. We parallelize over both the inner
+and outer loop using a two-dimensional threadblock of size (32x32), so that the body of the function doesn't contain any loops, just the update to `f` and the `error`. How much
+faster does the Jacobi step get? How much faster does the application get overall? What is the new application bottleneck? The new code is in `jacobi_step4.cpp`. Note that we now
+need to use `nvcc` since we're compiling CUDA code.
+```
+nvcc -o jacobi_step4 -x cu -arch=sm_80 -lnvToolsExt jacobi_step4.cpp
+nsys profile --stats=true -o jacobi_step4 -f true ./jacobi_step4
+```
