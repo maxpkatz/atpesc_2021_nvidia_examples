@@ -284,3 +284,8 @@ nsys profile --stats=true -o jacobi_step9 -f true ./jacobi_step9
 ncu --launch-count 1 --launch-skip 5 --kernel-regex jacobi --export jacobi_step9 --force-overwrite --set full ./jacobi_step9
 ncu --import jacobi_step9.ncu-rep
 ```
+
+## Closing Thoughts
+
+After all of these steps, the kernels are now so fast again that the device warmup may be again a salient performance factor. In this case, we may want to again consider increasing the size of
+the problem to amortize this cost out. If you do, try comparing it to the CPU implementation to see what our final speedup was.
