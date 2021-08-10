@@ -108,3 +108,25 @@ The new code is in `jacobi_step2.cpp`.
 g++ -o jacobi_step2 -I/usr/local/cuda/include -L/usr/local/cuda/lib64 jacobi_step2.cpp -lnvToolsExt -lcudart
 nsys profile --stats=true -o jacobi_step2 -f true ./jacobi_step2
 ```
+
+## Step 3: Make the Problem Bigger
+
+In step 2, we saw that the cost of initializing CUDA (called "context creation") can be high, often measured in the hundreds of milliseconds. In this case,
+the cost is so large that it dwarfs the time spent in the actual calculation. Even if we could make the cost of the calculation zero with infinitely fast kernels,
+we would only make a small dent in the runtime of the application, and it would still be much slower than the original CPU-only calculation (without Unified Memory) was.
+There is simply no sense trying to optimize this scenario.
+
+When faced with this problem, the main conclusion to reach is that you need to *solve a bigger problem*. In many scientific applications there are two primary ways to
+make the problem bigger: we can either add more elements/zones/particles, or we can increase the number of iterations the code runs. In this specific case, the options
+are to increase the number of points in the grid, or to use a stricter error tolerance (which should require more iterations to achieve). However, if you make the tolerance
+several orders of magnitude tighter, you will only increase the number of steps by a relatively small factor for this particular case. (Most of the work is in transforming
+from our terrible initial guess of all zeros to a state that approximates the correct solution; the rest is fine-tuning.) So we have to use more grid points, which will
+achieve a finer spatial resolution and thus a more accurate (but expensive) answer. **This is a general fact of life when using GPUs: often it only makes sense to solve a
+much more expensive problem than the one we were solving before on CPUs.**
+
+So let's increase the number of grid points, `N`, such that the time spent in the main relaxation phase is at least 95% of the total application time. For the purpose of
+simplicity later, we are keeping it as a factor of 2, and we recommend a value of at least `N = 2048`. The updated code is in `jacobi_step3.cpp`.
+```
+g++ -o jacobi_step3 -I/usr/local/cuda/include -L/usr/local/cuda/lib64 jacobi_step3.cpp -lnvToolsExt -lcudart
+nsys profile --stats=true -o jacobi_step3 -f true ./jacobi_step3
+```
