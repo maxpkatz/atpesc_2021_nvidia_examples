@@ -2,7 +2,10 @@
 
 ## Setup
 
-First we need to make sure you've obtained access to a GPU on ThetaGPU.
+First we need to make sure you've obtained access to a GPU and set up your environment correctly.
+
+### ThetaGPU
+
 We'll use an interactive session for this work.
 
 ```
@@ -17,9 +20,34 @@ You can double check this with
 nvcc --version
 ```
 
-If you're using a system other than ThetaGPU, make sure to update the `-arch` flag in nvcc to match the compute capability of the GPU you are using
-(for example, `-arch=sm_70` for V100). This tutorial is only designed for a GPU that is either NVIDIA V100 or A100; your mileage may vary on other GPUs.
-Also, you'll need to replace the paths to `/usr/local/cuda` below with the path to your CUDA installation.
+Set an environment variable to note where CUDA is located. Also, let's record that we're going to be compiling for NVIDIA A100 GPUs.
+
+```
+export CUDA_PATH=/usr/local/cuda
+export CUDA_ARCH=80
+```
+
+### Ascent
+
+Grab an interactive node and then set the relevant environment variables:
+
+```
+bsub -nnodes 1 -W 60 -P <PROJECT> -Is $SHELL
+
+module load gcc/8.1.1
+module load cuda/11.2.0
+module load nsight-systems
+module load nsight-compute
+
+export CUDA_PATH=$OLCF_CUDA_ROOT
+export CUDA_ARCH=70
+```
+
+### Other systems
+
+If you're using a system other than ThetaGPU or Ascent, make sure to set the `CUDA_ARCH` environment variable to match the compute capability of the GPU you are using
+(for example, `CUDA_ARCH=70` for V100). This tutorial is only designed for a GPU that is either NVIDIA V100 or A100; your mileage may vary on other GPUs.
+Also, you'll need to set `CUDA_PATH` to point to your CUDA installation.
 
 ## Introduction
 
@@ -98,7 +126,7 @@ push/pop ranges can be nested, but we are avoiding that for now.) `jacobi_step1.
 When you run the program under Nsight Systems, a region for NVTX ranges will appear at the end when using the stdout summary mode (`--stats=true`). What does the NVTX output
 say about where the time is spent? Does it match your expectations?
 ```
-g++ -o jacobi_step1 -I/usr/local/cuda/include -L/usr/local/cuda/lib64 jacobi_step1.cpp -lnvToolsExt
+g++ -o jacobi_step1 -I$CUDA_PATH/include -L$CUDA_PATH/lib64 jacobi_step1.cpp -lnvToolsExt
 nsys profile --stats=true -o jacobi_step1 -f true ./jacobi_step1
 ```
 
@@ -109,7 +137,7 @@ This is completely legal even if, as in this case, we only intend to use host co
 the API `cuda_runtime_api.h` and the runtime library `libcudart.so`. What does the profile indicate about the relative cost of starting up a CUDA program?
 The new code is in `jacobi_step2.cpp`.
 ```
-g++ -o jacobi_step2 -I/usr/local/cuda/include -L/usr/local/cuda/lib64 jacobi_step2.cpp -lnvToolsExt -lcudart
+g++ -o jacobi_step2 -I$CUDA_PATH/include -L$CUDA_PATH/lib64 jacobi_step2.cpp -lnvToolsExt -lcudart
 nsys profile --stats=true -o jacobi_step2 -f true ./jacobi_step2
 ```
 
@@ -131,7 +159,7 @@ much more expensive problem than the one we were solving before on CPUs.**
 So let's increase the number of grid points, `N`, such that the time spent in the main relaxation phase is at least 95% of the total application time. For the purpose of
 simplicity later, we are keeping it as a factor of 2, and we recommend a value of at least `N = 2048`. The updated code is in `jacobi_step3.cpp`.
 ```
-g++ -o jacobi_step3 -I/usr/local/cuda/include -L/usr/local/cuda/lib64 jacobi_step3.cpp -lnvToolsExt -lcudart
+g++ -o jacobi_step3 -I$CUDA_PATH/include -L$CUDA_PATH/lib64 jacobi_step3.cpp -lnvToolsExt -lcudart
 nsys profile --stats=true -o jacobi_step3 -f true ./jacobi_step3
 ```
 
@@ -143,7 +171,7 @@ and outer loop using a two-dimensional threadblock of size (32x32), so that the 
 faster does the Jacobi step get? How much faster does the application get overall? What is the new application bottleneck? The new code is in `jacobi_step4.cpp`. Note that we now
 need to use `nvcc` since we're compiling CUDA code.
 ```
-nvcc -o jacobi_step4 -x cu -arch=sm_80 -lnvToolsExt jacobi_step4.cpp
+nvcc -o jacobi_step4 -x cu -arch=sm_$CUDA_ARCH -lnvToolsExt jacobi_step4.cpp
 nsys profile --stats=true -o jacobi_step4 -f true ./jacobi_step4
 ```
 ## Step 5: Convert the Swap Kernel
@@ -157,7 +185,7 @@ to keep the data on the GPU for the entirety of the Jacobi iteration.
 
 So now we implement `swap_data()` in CUDA and check the profiler output to understand what happened. See `jacobi_step5.cpp` for the new code.
 ```
-nvcc -o jacobi_step5 -x cu -arch=sm_80 -lnvToolsExt jacobi_step5.cpp
+nvcc -o jacobi_step5 -x cu -arch=sm_$CUDA_ARCH -lnvToolsExt jacobi_step5.cpp
 nsys profile --stats=true -o jacobi_step5 -f true ./jacobi_step5
 ```
 
@@ -212,7 +240,7 @@ This fix will allow us to achieve coalesced memory accesses. Look at `jacobi_ste
 As a side note, we expect this to improve GPU performance, but it's also likely this would have improved the CPU performance as well (if we compare to the original code where the `i` dimension
 was the innermost loop), which will make the overall GPU speedup relative to the CPU less impressive. You may want to go back and check how much of a factor that was in the CPU-only code.
 ```
-nvcc -o jacobi_step6 -x cu -arch=sm_80 -lnvToolsExt jacobi_step6.cpp
+nvcc -o jacobi_step6 -x cu -arch=sm_$CUDA_ARCH -lnvToolsExt jacobi_step6.cpp
 nsys profile --stats=true -o jacobi_step6 -f true ./jacobi_step6
 ```
 
@@ -225,7 +253,7 @@ ncu --launch-count 1 --launch-skip 5 --kernel-name regex:swap_data --set full ./
 
 The DRAM throughput is not quite where we want it. `swap_data()` isn't even using half of DRAM throughput. Let's make the problem bigger again! See `jacobi_step7.cpp`.
 ```
-nvcc -o jacobi_step7 -x cu -arch=sm_80 -lnvToolsExt jacobi_step7.cpp
+nvcc -o jacobi_step7 -x cu -arch=sm_$CUDA_ARCH -lnvToolsExt jacobi_step7.cpp
 nsys profile --stats=true -o jacobi_step7 -f true ./jacobi_step7
 ```
 
@@ -252,7 +280,7 @@ good of a job you would like to do, try commenting out the atomic reduction enti
 Jacobi kernel to get a profiling result, and see how much faster it is in that case (and inspect the Nsight Compute output for that case). That's your "speed of light" kernel, at least
 with respect to the reduction phase. Our new code is in `jacobi_step8.cpp`.
 ```
-nvcc -o jacobi_step8 -x cu -arch=sm_80 -lnvToolsExt jacobi_step8.cpp
+nvcc -o jacobi_step8 -x cu -arch=sm_$CUDA_ARCH -lnvToolsExt jacobi_step8.cpp
 nsys profile --stats=true -o jacobi_step8 -f true ./jacobi_step8
 ```
 
@@ -280,7 +308,7 @@ a proper threadblock synchronization before reading the data in shared memory, a
 A solution to this is presented in `jacobi_step9.cpp`. Note that this is probably not the best possible solution, it errs slightly on the side of legibility over performance in how the
 shared memory tile is loaded.
 ```
-nvcc -o jacobi_step9 -x cu -arch=sm_80 -lnvToolsExt jacobi_step9.cpp
+nvcc -o jacobi_step9 -x cu -arch=sm_$CUDA_ARCH -lnvToolsExt jacobi_step9.cpp
 nsys profile --stats=true -o jacobi_step9 -f true ./jacobi_step9
 ```
 
